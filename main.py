@@ -14,8 +14,8 @@ import time
 
 from dataclasses import dataclass
 from typing import Any
-from random import sample
-
+from random import sample, random
+import numpy as np
 
 import wandb
 from tqdm import tqdm
@@ -79,11 +79,11 @@ class Model(nn.Module):
 class ReplayBuffer:
     def __init__(self,buffer_size = 100000):
         self.buffer_size = buffer_size
-        self.buffer = []
+        self.buffer = deque(maxlen=buffer_size)
 
     def insert(self,sars):
         self.buffer.append(sars)
-        self.buffer = self.buffer[-self.buffer_size:]
+        # self.buffer = self.buffer[-self.buffer_size:]
 
     def sample(self, num_samples):
         assert num_samples <= len(self.buffer)
@@ -128,7 +128,7 @@ def train_step(model,state_transitions,tgt,num_actions):
         # ignoring the discount factor for now
 
         # check deep rl tutorial david silver for this refrence 
-        loss = (rewards +  mask[:,0]*qval_next - torch.sum(qvals*one_hot_actions,-1)).mean()
+        loss = ((rewards +  mask[:,0]*qval_next - torch.sum(qvals*one_hot_actions,-1))**2).mean()
         loss.backward()
         
         model.opt.step()
@@ -136,22 +136,38 @@ def train_step(model,state_transitions,tgt,num_actions):
         return loss
 
 
-if __name__ == '__main__':
-    wandb.init(project="dqn-cartpole",name="dqn-cartpole")
+def main(test=False, chkpt=None):
+    if not test:
+        wandb.init(project="dqn-cartpole",name="dqn-cartpole")
+    done = False
+    
     min_rb_size = 10000
     sample_size = 2500
-    env_steps_before_train = 100
-    tgt_model_update = 50
+    
+    eps_min = 0.01
 
-    done  = False
-    env = gym.make("CartPole-v1")
+    eps_decay = 0.999995
+
+    env_steps_before_train = 100
+    tgt_model_update = 150
+
+    # done  = False
+    if test:
+        env = gym.make("CartPole-v1", render_mode= "human")
+    else:
+        env = gym.make("CartPole-v1")
+
     last_observation, info = env.reset() 
     m = Model(env.observation_space.shape,env.action_space.n) # model that we train
-    
+    if chkpt is not None:
+        m.load_state_dict(torch.load(chkpt))
+
     # target model to update. Check David Silver lecture
     # for background information
     tgt = Model(env.observation_space.shape,env.action_space.n) # fixed model
-    
+    update_tgt_model(m,tgt)
+
+        
     rb = ReplayBuffer()
     steps_since_train = 0
     epochs_since_tgt = 0
@@ -159,38 +175,68 @@ if __name__ == '__main__':
     # qvals = m(torch.Tensor(last_observation))
     # import ipdb; ipdb.set_trace()
 
+
+    episode_rewards = []
+    rolling_reward = 0
     tq = tqdm()
     try:
         while True:
-            tq.update()
-            action = env.action_space.sample()
+            if test:
+                env.render()
+                time.sleep(0.05)
+            tq.update(1)
+
+            eps =eps_decay**(steps_num)
+
+            if test:
+                eps = 0
+
+            if random() < eps:
+                # use completely random action
+                action = env.action_space.sample()
+            else:
+                # use the agent to get the action
+                action = m(torch.Tensor(last_observation)).max(-1)[-1].item()
+
+            # action = env.action_space.sample()
             observation, reward, terminated, truncated, info = env.step(action)
+            rolling_reward += reward
+
+            reward = reward/100.0
 
             rb.insert(Sarsd(last_observation, action,reward,observation,done))
             last_observation = observation  
 
             done = terminated or truncated
             if done:
+                episode_rewards.append(rolling_reward)
+                if test:
+                    print(rolling_reward)
+                rolling_reward = 0
+
                 observation, info = env.reset()
 
             steps_since_train += 1
             steps_num += 1
             
 
-            if len(rb.buffer) > min_rb_size and steps_since_train > env_steps_before_train:
+            if (not test) and  len(rb.buffer) > min_rb_size and steps_since_train > env_steps_before_train:
                 
                 # it can be seen that the replay is duplicated
                 # but this keeps the design of the the replay buffer
                 # simple at this point. think of other RBs to improve
                 loss=  train_step(m,rb.sample(sample_size),tgt,env.action_space.n)
-                wandb.log({'loss':loss},step=steps_num) 
+                # import ipdb; ipdb.set_trace()
+                if not np.isnan(np.mean(episode_rewards)):
+                    wandb.log({'loss':loss.detach().item(), 'eps':eps, 'avg_reward' : np.mean(episode_rewards)},step=steps_num) 
                 
-
+                episode_rewards = []
                 epochs_since_tgt += 1
                 if epochs_since_tgt > tgt_model_update:
                     print("Updating the Target Model")
                     update_tgt_model(m,tgt)
                     epochs_since_tgt = 0
+                    torch.save(tgt.state_dict(),f"models/{steps_num}.pth")
 
                 steps_since_train = 0
 
@@ -206,3 +252,5 @@ if __name__ == '__main__':
 
 
  
+if __name__ == '__main__':
+    main(True, "models/2348554.pth")

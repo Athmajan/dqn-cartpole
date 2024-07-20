@@ -141,15 +141,16 @@ def main(test=False, chkpt=None):
         wandb.init(project="dqn-cartpole",name="dqn-cartpole")
     done = False
     
-    min_rb_size = 10000
-    sample_size = 2500
+    memory_size = 500000
+    min_rb_size = 20000
+    sample_size = 7500
     
     eps_min = 0.01
 
     eps_decay = 0.999995
 
-    env_steps_before_train = 100
-    tgt_model_update = 150
+    env_steps_before_train = 1000
+    tgt_model_update = 100
 
     # done  = False
     if test:
@@ -253,4 +254,4 @@ def main(test=False, chkpt=None):
 
  
 if __name__ == '__main__':
-    main(True, "models/2348554.pth")
+    main(False, "models/2348554.pth")

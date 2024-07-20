@@ -76,18 +76,29 @@ class Model(nn.Module):
 
 # Improve this with python deque
 # also can be a database?
+# deque can be dropped and made faster
 class ReplayBuffer:
     def __init__(self,buffer_size = 100000):
         self.buffer_size = buffer_size
-        self.buffer = deque(maxlen=buffer_size)
+        self.buffer = [None]*buffer_size # fixed size array
+        self.idx = 0
 
     def insert(self,sars):
-        self.buffer.append(sars)
-        # self.buffer = self.buffer[-self.buffer_size:]
+        self.buffer[self.idx % self.buffer_size] = sars
+        self.idx += 1
 
     def sample(self, num_samples):
-        assert num_samples <= len(self.buffer)
-        return sample(self.buffer, num_samples)
+        
+        assert num_samples < min(self.idx,self.buffer_size)
+
+        if self.idx < self.buffer_size:
+        # until we reach the buffer size we cant  sample
+        # from the entire array but sample upto idx only
+            return sample(self.buffer[:self.idx],num_samples)
+        return sample(self.buffer,num_samples)
+            
+
+        # return sample(self.buffer, num_samples)
 
 
 
@@ -143,7 +154,7 @@ def main(test=False, chkpt=None):
     
     memory_size = 500000
     min_rb_size = 20000
-    sample_size = 7500
+    sample_size = 750
     
     eps_min = 0.01
 
@@ -220,8 +231,7 @@ def main(test=False, chkpt=None):
             steps_since_train += 1
             steps_num += 1
             
-
-            if (not test) and  len(rb.buffer) > min_rb_size and steps_since_train > env_steps_before_train:
+            if (not test) and rb.idx > min_rb_size and steps_since_train > env_steps_before_train:
                 
                 # it can be seen that the replay is duplicated
                 # but this keeps the design of the the replay buffer

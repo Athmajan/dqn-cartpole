@@ -108,7 +108,7 @@ def update_tgt_model(m,tgt):
     '''
     tgt.load_state_dict(m.state_dict())
 
-def train_step(model,state_transitions,tgt,num_actions):
+def train_step(model,state_transitions,tgt,num_actions, gamma=0.99):
         # import ipdb; ipdb.set_trace()
         # need to create the state vector
         # that is a stacked
@@ -139,7 +139,7 @@ def train_step(model,state_transitions,tgt,num_actions):
         # ignoring the discount factor for now
 
         # check deep rl tutorial david silver for this refrence 
-        loss = ((rewards +  mask[:,0]*qval_next - torch.sum(qvals*one_hot_actions,-1))**2).mean()
+        loss = ((rewards +  mask[:,0]*qval_next*gamma - torch.sum(qvals*one_hot_actions,-1))**2).mean()
         loss.backward()
         
         model.opt.step()
@@ -214,7 +214,7 @@ def main(test=False, chkpt=None):
             observation, reward, terminated, truncated, info = env.step(action)
             rolling_reward += reward
 
-            reward = reward/100.0
+            reward = reward*0.01
 
             rb.insert(Sarsd(last_observation, action,reward,observation,done))
             last_observation = observation  
@@ -237,6 +237,7 @@ def main(test=False, chkpt=None):
                 # but this keeps the design of the the replay buffer
                 # simple at this point. think of other RBs to improve
                 loss=  train_step(m,rb.sample(sample_size),tgt,env.action_space.n)
+
                 # import ipdb; ipdb.set_trace()
                 if not np.isnan(np.mean(episode_rewards)):
                     wandb.log({'loss':loss.detach().item(), 'eps':eps, 'avg_reward' : np.mean(episode_rewards)},step=steps_num) 

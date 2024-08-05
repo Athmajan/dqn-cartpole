@@ -1,4 +1,5 @@
 import gymnasium as gym
+import numpy as np
 import math
 import random
 import matplotlib
@@ -15,11 +16,15 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from random import sample, random
-import numpy as np
+
 
 import wandb
 from tqdm import tqdm
 from collections import deque
+from models import Model
+
+
+from utils import FrameStackingAndResizingEnv
 
 '''
 Tutorial https://www.youtube.com/watch?v=WHRQUZrxxGw&t=1163s&ab_channel=JackofSome
@@ -48,30 +53,7 @@ class DQNAgent:
 
         # q_vals shape (N, 2) q values for 2 action choces.
         return q_vals.max(-1)[1]
-    
-class Model(nn.Module):
-    def __init__(self,obs_shape,num_actions):
-        super(Model,self).__init__()
-        assert len(obs_shape) == 1 # This only works for flat observations
-        self.obs_shape = obs_shape
-        self.num_actions = num_actions
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(obs_shape[0],256),
-            torch.nn.ReLU(),
-            torch.nn.Linear(256,num_actions),
-            # No activations after this because we 
-            # need to represent a real value for the rewards
-            # if not we wont be able to represent negative rewards
-        )
-        self.opt = optim.Adam(self.net.parameters(),lr = 0.0001)
-
-    
-    def forward(self,x):
-        return self.net(x)
-    
-
-    
-
+   
   
 
 # Improve this with python deque
@@ -137,7 +119,7 @@ def train_step(model,state_transitions,tgt,num_actions, gamma=0.99):
         
         
         # ignoring the discount factor for now
-
+        
         # check deep rl tutorial david silver for this refrence 
         loss = ((rewards +  mask[:,0]*qval_next*gamma - torch.sum(qvals*one_hot_actions,-1))**2).mean()
         loss.backward()
@@ -147,14 +129,10 @@ def train_step(model,state_transitions,tgt,num_actions, gamma=0.99):
         return loss
 
 
-def main(test=False, chkpt=None):
-    if not test:
-        wandb.init(project="dqn-cartpole",name="dqn-cartpole")
-    done = False
-    
-    memory_size = 500000
+def main(name,test=False, chkpt=None):
+    memory_size = 1000000
     min_rb_size = 20000
-    sample_size = 750
+    sample_size = 100
     
     eps_min = 0.01
 
@@ -162,6 +140,14 @@ def main(test=False, chkpt=None):
 
     env_steps_before_train = 1000
     tgt_model_update = 100
+    
+
+
+
+    # if not test:
+    #     wandb.init(project="dqn-cartpole",name=name)
+    done = False
+    
 
     # done  = False
     if test:
@@ -169,7 +155,9 @@ def main(test=False, chkpt=None):
     else:
         env = gym.make("CartPole-v1")
 
+
     last_observation, info = env.reset() 
+    import ipdb; ipdb.set_trace()
     m = Model(env.observation_space.shape,env.action_space.n) # model that we train
     if chkpt is not None:
         m.load_state_dict(torch.load(chkpt))
@@ -239,8 +227,8 @@ def main(test=False, chkpt=None):
                 loss=  train_step(m,rb.sample(sample_size),tgt,env.action_space.n)
 
                 # import ipdb; ipdb.set_trace()
-                if not np.isnan(np.mean(episode_rewards)):
-                    wandb.log({'loss':loss.detach().item(), 'eps':eps, 'avg_reward' : np.mean(episode_rewards)},step=steps_num) 
+                # if not np.isnan(np.mean(episode_rewards)):
+                #     wandb.log({'loss':loss.detach().item(), 'eps':eps, 'avg_reward' : np.mean(episode_rewards)},step=steps_num) 
                 
                 episode_rewards = []
                 epochs_since_tgt += 1
@@ -266,3 +254,4 @@ def main(test=False, chkpt=None):
  
 if __name__ == '__main__':
     main(False, "models/2348554.pth")
+    # argh.dispatch_command(main)
